@@ -44,6 +44,19 @@ class Pad():
         mask = torchvision.transforms.functional.pad(mask, padding=padding, fill=0)
         return origin, mask
 
+class Rotate():
+    def __init__(self, lower, upper):
+        self.lower = lower
+        self.upper = upper
+    
+    def __call__(self, sample):
+        origin, mask = sample
+        angle = np.random.randint(self.lower, self.upper)
+        origin = torchvision.transforms.functional.rotate(origin, angle)
+        mask = torchvision.transforms.functional.rotate(mask, angle)
+        return origin, mask
+
+
 
 class Crop():
     def __init__(self, max_shift):
