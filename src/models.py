@@ -137,3 +137,93 @@ class PretrainedUNet(torch.nn.Module):
         out = self.out(dec1)
         
         return out
+
+
+class tuned_PretrainedUNet(torch.nn.Module):
+    #def up(self, x, in_size, out_size):
+     #   _m = torch.nn.ConvTranspose2d(in_channels=in_size, out_channels=out_size, kernel_size=2)(x)
+        #return torch.nn.functional.ConvTranspose2d(x, in_channels=in_size, out_channels=out_size, kernel_size=2)
+        #return torch.nn.functional.conv_transpose2d(x)
+        #return torch.nn.functional.interpolate(x, size=size, mode=self.upscale_mode)
+    
+    def down(self, x):
+        return torch.nn.functional.max_pool2d(x, kernel_size=2, stride=2)
+    
+    def __init__(self, in_channels, out_channels, batch_norm=False, upscale_mode="nearest"):
+        super().__init__()
+        
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.batch_norm = batch_norm
+        self.upscale_mode = upscale_mode
+        
+        self.init_conv = torch.nn.Conv2d(in_channels, 3, 1)
+        
+        endcoder = torchvision.models.vgg11(pretrained=True).features
+        self.conv1 = endcoder[0]   # 64
+        self.conv2 = endcoder[3]   # 128
+        self.conv3 = endcoder[6]   # 256
+        self.conv3s = endcoder[8]  # 256
+        self.conv4 = endcoder[11]   # 512
+        self.conv4s = endcoder[13]  # 512
+        #self.conv5 = endcoder[16]  # 512
+        #self.conv5s = endcoder[18] # 512
+    
+        self.center = Block(512, 512, 512, batch_norm)
+        
+        #self.dec5 = Block(512 + 256, 512, 256, batch_norm)
+        self.dec4 = Block(512 + 256, 512, 256, batch_norm)
+        self.dec3 = Block(256 + 128, 256, 128, batch_norm)
+        self.dec2 = Block(128 + 64, 128, 64, batch_norm)
+        self.dec1 = Block(64 + 32, 64, 32, batch_norm)
+
+        # they should be like this but they are noooot
+        #self.up5 = torch.nn.ConvTranspose2d(512, 256, kernel_size=(2,2))
+        self.up4 = torch.nn.ConvTranspose2d(512, 256, kernel_size=(2,2), stride=2)
+        self.up3 = torch.nn.ConvTranspose2d(256, 128, kernel_size=(2,2), stride=2)
+        self.up2 = torch.nn.ConvTranspose2d(128, 64, kernel_size=(2,2), stride=2)
+        self.up1 = torch.nn.ConvTranspose2d(64, 32, kernel_size=(2,2), stride=2)
+        
+        self.out = torch.nn.Conv2d(in_channels=32, out_channels=out_channels, kernel_size=1)
+
+    def forward(self, x):  
+        init_conv = torch.nn.functional.relu(self.init_conv(x), inplace=True)
+
+        enc1 = torch.nn.functional.relu(self.conv1(init_conv), inplace=True)
+        enc2 = torch.nn.functional.relu(self.conv2(self.down(enc1)), inplace=True)
+        enc3 = torch.nn.functional.relu(self.conv3(self.down(enc2)), inplace=True)
+        enc3 = torch.nn.functional.relu(self.conv3s(enc3), inplace=True)
+        enc4 = torch.nn.functional.relu(self.conv4(self.down(enc3)), inplace=True)
+        enc4 = torch.nn.functional.relu(self.conv4s(enc4), inplace=True)
+        #enc5 = torch.nn.functional.relu(self.conv5(self.down(enc4)), inplace=True)
+        #enc5 = torch.nn.functional.relu(self.conv5s(enc5), inplace=True)
+        
+        center = self.center(self.down(enc4))
+        
+        #print(center.size(), enc5.size())
+        #print(type(center.size()[-2:][0]), center.size()[-2:][0])
+        # dec5 = self.dec5(torch.cat([self.up(center, center.size()[1], enc5.size()[1]),
+        #                              enc5], 1))
+        # size()[1] -> fmaps :: weight of size [16, 32, 2, 2], expected input[4, 256, 16, 16] 
+        # to have 16 channels, but got 256 channels instead
+        #dec5 = self.dec5(torch.cat([self.up5(enc5), enc5], 1))
+        #print(self.up4(center).size(), enc4.size())
+        dec4 = self.dec4(torch.cat([self.up4(center), enc4], 1))
+        dec3 = self.dec3(torch.cat([self.up3(dec4), enc3], 1))
+        dec2 = self.dec2(torch.cat([self.up2(dec3), enc2], 1))
+        dec1 = self.dec1(torch.cat([self.up1(dec2), enc1], 1))
+
+        # dec5 = self.dec5(torch.cat([self.up(center, center.size()[1], enc5.size()[1]),
+        #                              enc5], 1))
+        # dec4 = self.dec4(torch.cat([self.up(dec5, dec5.size()[-2:], enc4.size()[-2:]),
+        #                              enc4], 1))
+        # dec3 = self.dec3(torch.cat([self.up(dec4, dec4.size()[-2:], enc3.size()[-2:]),
+        #                              enc3], 1))
+        # dec2 = self.dec2(torch.cat([self.up(dec3, dec3.size()[-2:], enc2.size()[-2:]),
+        #                              enc2], 1))
+        # dec1 = self.dec1(torch.cat([self.up(dec2, dec2.size()[-2:], enc1.size()[-2:]),
+        #                              enc1], 1))
+        
+        out = self.out(dec1)
+        
+        return out
