@@ -16,14 +16,24 @@ class LungDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         origin_name, mask_name = self.origin_mask_list[idx]
-        origin = Image.open(self.origins_folder / (origin_name + ".png")).convert("P")
-        mask = Image.open(self.masks_folder / (mask_name + ".png"))
+        # changed from convert("P") to "L" fixed images being loaded as negatives which killed prediction
+        origin = Image.open(self.origins_folder / (origin_name + ".png")).convert("L")
+        #print("getitem: ", self.origins_folder, origin_name, np.array(origin).shape, np.array(origin)[50,50])
+        mask = Image.open(self.masks_folder / (mask_name + ".png")).convert("L")
+        if np.array(mask).shape == (512,512):
+            origin = torchvision.transforms.functional.resize(origin, (512,512))
         if self.transforms is not None:
             origin, mask = self.transforms((origin, mask))
             
+        #print("getitem: ", np.array(origin)[0,0])
         origin = torchvision.transforms.functional.to_tensor(origin) - 0.5
-    
+        #print(origin.min(), origin.max())
         mask = np.array(mask)
+        #if mask.max() == 1: # our masks are not [0,255] but float [0,1], so binary convert
+        #   print("ichwarhier")
+        #    mask = (torch.tensor(mask).mul(255) > 128).long()
+        #else:
+        #    print("diesichwarhier")
         mask = (torch.tensor(mask) > 128).long() 
         return origin, mask
         
@@ -90,7 +100,11 @@ class Resize():
 
 
 def blend(origin, mask1=None, mask2=None):
+    #print("Blend raw: ", origin[0].shape, origin.min(), origin.max())
+    #print("Blend middle pix val: ", origin[0][256,256])
     img = torchvision.transforms.functional.to_pil_image(origin + 0.5).convert("RGB")
+    #print("Blend rgb image: ", np.array(img)[0,0])
+    #print(np.array(img).max())
     if mask1 is not None:
         mask1 =  torchvision.transforms.functional.to_pil_image(torch.cat([
             torch.zeros_like(origin),
